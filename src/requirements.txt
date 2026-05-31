@@ -1,4 +1,4 @@
 litellm
 python-dotenv
 tavily-python
-wikipedia
+wikipedia-api
