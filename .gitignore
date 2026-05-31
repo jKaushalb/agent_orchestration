@@ -1,0 +1,6 @@
+**/.env
+*/**/*.ipynb
+venv/
+*/**/__pycache__
+
+*/**/*.md
