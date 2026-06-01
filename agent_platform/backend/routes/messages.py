@@ -105,19 +105,20 @@ async def stream_messages(run_id: str = Query(...)):
         idle = 0
         while idle < 600:  # ~5 min cap on an idle stream
             with Session(engine) as s:
+                # Read run status BEFORE messages: the orchestrator commits a
+                # message and only then marks the run finished, so if we observe
+                # "finished" we are guaranteed a subsequent message read includes
+                # the final delivered artifact (no lost-last-message race).
+                run = s.get(Run, run_id)
                 rows = s.exec(
                     select(Message).where(Message.run_id == run_id)
                     .order_by(Message.created_at)
                 ).all()
-                new = [m for m in rows if m.id not in seen]
-                run = s.get(Run, run_id)
+            new = [m for m in rows if m.id not in seen]
             for m in new:
                 seen.add(m.id)
                 yield f"data: {json.dumps(_serialize(m))}\n\n"
-            if new:
-                idle = 0
-            else:
-                idle += 1
+            idle = 0 if new else idle + 1
             if run and run.status != "running" and not new:
                 yield f"event: done\ndata: {json.dumps({'status': run.status})}\n\n"
                 return
