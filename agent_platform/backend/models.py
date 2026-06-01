@@ -98,3 +98,63 @@ class AgentUpdate(SQLModel):
     interaction_rules: Optional[Dict[str, Any]] = None
     guardrails: Optional[Dict[str, Any]] = None
     canvas_pos: Optional[Dict[str, float]] = None
+
+
+# ---------------------------------------------------------------------------
+# Chunk 3: workflows, runs, and the message bus.
+# ---------------------------------------------------------------------------
+class Workflow(SQLModel, table=True):
+    """A topology of agents. ``graph`` is the routing source of truth:
+
+        {
+          "entry": ["<agent_id>", ...],          # where a user request enters
+          "nodes": [{"id": "<agent_id>", ...}],  # (optional) UI/canvas metadata
+          "edges": [{"source": "<agent_id>",
+                     "target": "<agent_id|user>",
+                     "condition": {"contains": "approved", "negate": false}}]
+        }
+
+    Mesh, master/worker and feedback loops are all just different edge sets.
+    """
+
+    id: str = Field(default_factory=_uuid, primary_key=True)
+    name: str
+    graph: Dict[str, Any] = Field(default_factory=dict, sa_column=Column(JSON))
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+
+
+class Run(SQLModel, table=True):
+    """One execution of a workflow (or a direct single-agent chat)."""
+
+    id: str = Field(default_factory=_uuid, primary_key=True)
+    workflow_id: Optional[str] = None
+    topic: str = ""
+    status: str = "running"  # running | completed | failed
+    steps: int = 0           # agent executions so far (loop guard)
+    max_steps: int = 30      # hard cap so feedback loops always terminate
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+
+
+class Message(SQLModel, table=True):
+    """A unit on the bus: async transport + persistence + UI feed, all in one.
+
+    ``status`` drives the orchestrator:
+      pending    -> waiting to be processed by ``recipient``
+      processing -> claimed by the orchestrator
+      done       -> processed (or a terminal/user-facing message)
+      failed     -> the recipient agent errored
+    """
+
+    id: str = Field(default_factory=_uuid, primary_key=True)
+    run_id: str = Field(index=True)
+    sender: str = "user"                 # agent_id, "user", "system", or a channel
+    recipient: Optional[str] = None      # agent_id to process; None/"user" = terminal
+    label: str = "user"                  # display name for the UI (agent name / "user")
+    content: str = ""
+    content_type: str = "text"           # text | image
+    attachments: Optional[List[Dict[str, Any]]] = Field(
+        default=None, sa_column=Column(JSON)
+    )
+    status: str = "pending"
+    error: Optional[str] = None
+    created_at: datetime = Field(default_factory=datetime.utcnow)

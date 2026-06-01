@@ -96,4 +96,28 @@ Tool catalog (an agent's `tools` field selects from these):
 | `fetch_url` | Fetch a page and return cleaned readable text |
 | `write_file` / `read_file` / `list_files` | Read/write files in a sandboxed `workspace/` |
 
+## Message bus & orchestration
+
+Agents never call each other directly — they exchange rows in the `messages`
+table. A single async worker (`backend/orchestrator.py`) claims `pending`
+messages, runs the recipient agent, and routes its output to downstream agents
+per the workflow graph's edges. That one table is the **async transport**
+(a sender only writes a row, never awaits the receiver), the **persistence
+layer**, and the **UI feed** — no Redis/Celery needed.
+
+Routing is data, so every topology is just an edge set:
+
+- **fan-out** — multiple edges out of one node (Lead → Researcher 1/2/3)
+- **join** — edges marked `"join": true` into a node act as a barrier; the
+  node fires once, with all inputs merged (Researchers → Writer)
+- **conditions** — an edge fires only if its `condition` matches the output,
+  e.g. `{"contains": "approved"}` or the same with `"negate": true`
+- **feedback loops** — an edge can point back upstream (Critic → Writer); the
+  run's `max_steps` guarantees termination
+
+Start a run with `POST /runs`; read history with `GET /messages?run_id=...`;
+stream it live with `GET /messages/stream?run_id=...` (SSE). The routing engine
+is verified end-to-end (fan-out, join, loop, termination) by
+`python -m backend.verify_orchestrator`.
+
 

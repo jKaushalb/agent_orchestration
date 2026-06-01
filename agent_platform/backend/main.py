@@ -10,21 +10,29 @@ from dotenv import load_dotenv
 from fastapi import FastAPI
 
 from .db import init_db
-from .routes import agents
+from .orchestrator import Orchestrator
+from .routes import agents, messages
 
 load_dotenv()
+
+orchestrator = Orchestrator()
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     init_db()
-    # Chunk 3: start orchestrator task. Chunk 5: start Telegram. Chunk 7: scheduler.
-    yield
+    orchestrator.start()  # async message-bus worker
+    # Chunk 5: start Telegram. Chunk 7: scheduler.
+    try:
+        yield
+    finally:
+        await orchestrator.stop()
 
 
 app = FastAPI(title="Agent Platform", version="0.1.0", lifespan=lifespan)
 
 app.include_router(agents.router)
+app.include_router(messages.router)
 
 
 @app.get("/health")
