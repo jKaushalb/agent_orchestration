@@ -17,10 +17,10 @@ venv/
 **/op/
 
 # Prototype outputs & inputs (article drafts, OCR run artifacts, input images)
-src/agents/AI_*.md
-src/agents/*.json
-src/agents/*.txt
-src/agents/*.jpg
+agents_from_scratch/agents/AI_*.md
+agents_from_scratch/agents/*.json
+agents_from_scratch/agents/*.txt
+agents_from_scratch/agents/*.jpg
 
 # Node / frontend build
 node_modules/
