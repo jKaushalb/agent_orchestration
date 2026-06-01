@@ -16,6 +16,7 @@ persisted (every row is history the UI can read).
 """
 import asyncio
 import logging
+import os
 import traceback
 from typing import Any, Callable, Dict, List, Optional
 
@@ -34,13 +35,19 @@ RunFn = Callable[..., Any]
 
 
 class Orchestrator:
-    def __init__(self, run_fn: RunFn = run_agent, poll_interval: float = 0.4):
+    def __init__(self, run_fn: RunFn = run_agent, poll_interval: float = 0.4,
+                 max_concurrency: Optional[int] = None):
         self._run_fn = run_fn
         self._poll = poll_interval
         self._task: Optional[asyncio.Task] = None
         self._stop = asyncio.Event()
         # join buffers: (run_id, target_agent_id) -> {source_agent_id: content}
         self._joins: Dict[tuple, Dict[str, str]] = {}
+        # Cap concurrent agent (LLM) calls so a fan-out doesn't burst the API and
+        # trip rate limits. Override via AGENT_MAX_CONCURRENCY (default 2).
+        if max_concurrency is None:
+            max_concurrency = int(os.environ.get("AGENT_MAX_CONCURRENCY", "2"))
+        self._sem = asyncio.Semaphore(max(1, max_concurrency))
 
     # --- lifecycle ----------------------------------------------------------
     def start(self) -> None:
@@ -104,7 +111,8 @@ class Orchestrator:
         history = (self._load_memory(agent) or []) + self._run_transcript(run.id, m["id"])
         history = history or None
         try:
-            result = await asyncio.to_thread(self._run_fn, cfg, m["content"], history)
+            async with self._sem:  # throttle concurrent LLM calls
+                result = await asyncio.to_thread(self._run_fn, cfg, m["content"], history)
             output = result.output if hasattr(result, "output") else str(result)
             cost = getattr(result, "cost", 0.0)
         except Exception as e:  # agent failed -> log it, surface it, end the run
