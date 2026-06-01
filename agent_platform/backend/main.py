@@ -10,6 +10,7 @@ from dotenv import load_dotenv
 from fastapi import FastAPI
 
 from .db import init_db
+from .routes import agents
 
 load_dotenv()
 
@@ -22,6 +23,8 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="Agent Platform", version="0.1.0", lifespan=lifespan)
+
+app.include_router(agents.router)
 
 
 @app.get("/health")

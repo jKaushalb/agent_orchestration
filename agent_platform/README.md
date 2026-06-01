@@ -59,6 +59,30 @@ copy ..\.env.example ..\.env
 cd .. ; python run.py
 ```
 
-Open http://localhost:8000 — the API; the web UI arrives in a later chunk.
+Open http://localhost:8000/docs — interactive API docs. The web UI arrives in a
+later chunk.
+
+## API — Agents
+
+Every agent is one row whose columns are the configurable dimensions (an impact
+metric): identity (`name`, `role`), behaviour (`system_prompt`, `model`,
+`temperature`, `max_output_tokens`, `thinking`), capabilities (`tools`,
+`skills`), connectivity (`channels`), automation (`schedule`), state
+(`memory_config`), and safety (`interaction_rules`, `guardrails`).
+
+| Method | Path | Purpose |
+|---|---|---|
+| POST | `/agents` | create an agent |
+| GET | `/agents` | list agents |
+| GET | `/agents/{id}` | read one |
+| PUT | `/agents/{id}` | partial update |
+| DELETE | `/agents/{id}` | delete |
+
+Smoke-test the API: `python -m backend.verify_crud` (from `agent_platform/`).
+
+## Build status
+
+Built in small, committed chunks (see `../../plan.md`). Done: **Chunk 0**
+(scaffold + decisions), **Chunk 1** (agent CRUD backend).
 
 
