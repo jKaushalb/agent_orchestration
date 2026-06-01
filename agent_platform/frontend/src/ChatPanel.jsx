@@ -11,7 +11,11 @@ function colorFor(label) {
 function runLabel(r) {
   const when = new Date(r.created_at).toLocaleString();
   const topic = (r.topic || "(no topic)").slice(0, 40);
-  return `[${r.status}] ${topic} — ${when}`;
+  return `[${r.status}] ${topic} — $${(r.cost || 0).toFixed(4)} — ${when}`;
+}
+
+function usd(n) {
+  return `$${Number(n || 0).toFixed(4)}`;
 }
 
 export default function ChatPanel({ version }) {
@@ -25,6 +29,7 @@ export default function ChatPanel({ version }) {
   const [running, setRunning] = useState(false);
   const [runId, setRunId] = useState(null);
   const [maxLoops, setMaxLoops] = useState(3);
+  const [cost, setCost] = useState(0);
   const closeRef = useRef(null);
   const bottomRef = useRef(null);
 
@@ -50,12 +55,20 @@ export default function ChatPanel({ version }) {
     api.listRuns().then(setRuns).catch(() => {});
   }
 
+  // pull the run's accumulated cost (sum of every sub-agent's cost)
+  function refreshCost(id) {
+    api.getRun(id).then((r) => setCost(r.cost || 0)).catch(() => {});
+  }
+
   function streamInto(id, onDone) {
     closeRef.current?.();
     closeRef.current = streamRun(
       id,
-      (m) => setMessages((prev) => [...prev.filter((x) => x.id !== "local" && x.id !== m.id), m]),
-      () => { setRunning(false); refreshRuns(); onDone && onDone(); }
+      (m) => {
+        setMessages((prev) => [...prev.filter((x) => x.id !== "local" && x.id !== m.id), m]);
+        refreshCost(id); // update running total as each agent finishes
+      },
+      () => { setRunning(false); refreshRuns(); refreshCost(id); onDone && onDone(); }
     );
   }
 
@@ -70,6 +83,7 @@ export default function ChatPanel({ version }) {
     setText("");
     setImage(null);
     setRunning(true);
+    setCost(0);
 
     try {
       const { run_id } = await api.startRun(payload);
@@ -89,6 +103,7 @@ export default function ChatPanel({ version }) {
     setRunId(id);
     const [msgs, run] = await Promise.all([api.getMessages(id), api.getRun(id)]);
     setMessages(msgs);
+    setCost(run.cost || 0);
     if (run.status === "running") {
       setRunning(true);
       streamInto(id);
@@ -110,6 +125,7 @@ export default function ChatPanel({ version }) {
     setRunId(null);
     setMessages([]);
     setRunning(false);
+    setCost(0);
   }
 
   function onFile(e) {
@@ -155,6 +171,9 @@ export default function ChatPanel({ version }) {
           ? <button className="danger" onClick={stop}>■ Stop</button>
           : <span className="muted">idle</span>}
         {running && <span className="running">● running…</span>}
+        <span className="cost" title="total cost of this run (sum of all agents)">
+          {usd(cost)}
+        </span>
       </div>
 
       <div className="messages">
