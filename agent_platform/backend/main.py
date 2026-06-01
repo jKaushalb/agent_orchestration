@@ -13,7 +13,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from .channels.telegram import TelegramChannel
 from .db import init_db
 from .orchestrator import Orchestrator
-from .routes import agents, messages
+from .routes import agents, messages, workflows
 from .runtime.tools import AVAILABLE_TOOLS
 
 load_dotenv()
@@ -47,6 +47,7 @@ app.add_middleware(
 
 app.include_router(agents.router)
 app.include_router(messages.router)
+app.include_router(workflows.router)
 
 
 @app.get("/health")

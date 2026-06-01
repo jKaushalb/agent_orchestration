@@ -18,6 +18,10 @@ export const api = {
   listTools: () => j("GET", "/tools"),
   startRun: (payload) => j("POST", "/runs", payload),
   listWorkflows: () => j("GET", "/workflows").catch(() => []),
+  getWorkflow: (id) => j("GET", `/workflows/${id}`),
+  createWorkflow: (w) => j("POST", "/workflows", w),
+  updateWorkflow: (id, w) => j("PUT", `/workflows/${id}`, w),
+  deleteWorkflow: (id) => j("DELETE", `/workflows/${id}`),
 };
 
 // Subscribe to a run's live message stream (SSE). Returns a close() fn.
