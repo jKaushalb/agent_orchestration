@@ -17,6 +17,19 @@ from ..models import Agent, AgentCreate, AgentRead, AgentUpdate
 
 router = APIRouter(prefix="/agents", tags=["agents"])
 
+# Optional hook invoked after any agent change (wired to scheduler.reload()).
+_on_change = None
+
+
+def set_on_change(fn):
+    global _on_change
+    _on_change = fn
+
+
+def _changed():
+    if _on_change:
+        _on_change()
+
 
 @router.post("", response_model=AgentRead, status_code=201)
 def create_agent(payload: AgentCreate, session: Session = Depends(get_session)):
@@ -24,6 +37,7 @@ def create_agent(payload: AgentCreate, session: Session = Depends(get_session)):
     session.add(agent)
     session.commit()
     session.refresh(agent)
+    _changed()
     return agent
 
 
@@ -53,6 +67,7 @@ def update_agent(
     session.add(agent)
     session.commit()
     session.refresh(agent)
+    _changed()
     return agent
 
 
@@ -63,3 +78,4 @@ def delete_agent(agent_id: str, session: Session = Depends(get_session)):
         raise HTTPException(status_code=404, detail="Agent not found")
     session.delete(agent)
     session.commit()
+    _changed()

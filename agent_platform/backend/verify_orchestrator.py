@@ -26,7 +26,7 @@ def make_fake_runner():
     """Return a run_fn(cfg, content) -> RunResult-like, deterministic per role."""
     state = {"writer": 0, "critic": 0}
 
-    def run_fn(cfg, content):
+    def run_fn(cfg, content, history=None):
         role = cfg.name
         if role == "Lead":
             return _Fake("decompose the question")

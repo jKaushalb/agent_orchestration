@@ -141,6 +141,23 @@ npm install
 npm run dev   # http://localhost:5173 (API calls proxied to :8000)
 ```
 
+## Agent configuration (schedules · memory · guardrails)
+
+Beyond model/prompt/tools/channels, each agent has (editable in the form's
+**Advanced** section, enforced by the orchestrator):
+
+- **Schedule** — a cron spec + prompt; APScheduler starts a run automatically on
+  that cadence (e.g. a daily digest). Jobs reload whenever agents change.
+- **Memory** — when enabled, the agent's recent exchanges are stored and
+  re-injected as context on its next turn (`max_items` cap).
+- **Guardrails** — `max_cost_usd` stops a run once its accumulated cost exceeds
+  the cap; `blocked_words` redacts any output containing a disallowed term.
+- **Interaction rules** — `allowed_recipients` restricts which agents a given
+  agent may route to (API-configurable).
+
+Verified by `python -m backend.verify_config` (memory injection, guardrail
+redaction, schedule-trigger parsing).
+
 ## Telegram channel
 
 An inbound Telegram message enters the **same message bus** as the web UI, and

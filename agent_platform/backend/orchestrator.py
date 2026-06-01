@@ -20,12 +20,13 @@ from typing import Any, Callable, Dict, List, Optional
 from sqlmodel import Session, select
 
 from .db import engine
-from .models import Agent, Message, Run, Workflow
+from .models import Agent, Memory, Message, Run, Workflow
 from .runtime.runner import AgentRunConfig, run_agent
 
 
-# The agent-execution function. Tests override this with a fake to avoid LLM calls.
-RunFn = Callable[[AgentRunConfig, str], Any]
+# The agent-execution function: (config, content, history) -> RunResult-like.
+# Tests override this with a fake to avoid LLM calls.
+RunFn = Callable[..., Any]
 
 
 class Orchestrator:
@@ -93,17 +94,26 @@ class Orchestrator:
             return
 
         cfg = AgentRunConfig.from_row(agent)
+        history = self._load_memory(agent)  # prior context if memory is enabled
         try:
-            result = await asyncio.to_thread(self._run_fn, cfg, m["content"])
+            result = await asyncio.to_thread(self._run_fn, cfg, m["content"], history)
             output = result.output if hasattr(result, "output") else str(result)
             cost = getattr(result, "cost", 0.0)
         except Exception as e:  # agent failed -> mark and stop this branch
             self._settle(m["id"], "failed", error=f"{type(e).__name__}: {e}")
             return
 
-        self._bump_steps(run.id)
+        # Guardrail: redact output containing blocked words.
+        output = _apply_output_guardrails(agent, output)
+        self._save_memory(agent, m["content"], output)
+        run_cost = self._bump_steps(run.id, cost)
         self._route(run, agent, output, cost)
         self._settle(m["id"], "done")
+
+        # Guardrail: stop the run once it exceeds its cost cap.
+        cap = (agent.guardrails or {}).get("max_cost_usd")
+        if cap is not None and run_cost >= cap:
+            self._finish_run(run.id, "completed")
 
     # --- routing ------------------------------------------------------------
     def _route(self, run: Run, agent: Agent, output: str, cost: float) -> None:
@@ -117,6 +127,12 @@ class Orchestrator:
             return
 
         targets = [e for e in edges if _passes(e.get("condition"), output)]
+
+        # Guardrail / interaction rule: restrict who this agent may message.
+        allowed = (agent.interaction_rules or {}).get("allowed_recipients")
+        if allowed:
+            targets = [e for e in targets if e["target"] in allowed]
+
         if not targets:
             # conditions all failed -> dead end; surface output to user.
             self._emit(run.id, agent, output, recipient="user", status="done")
@@ -180,13 +196,42 @@ class Orchestrator:
                 s.add(m)
                 s.commit()
 
-    def _bump_steps(self, run_id):
+    def _bump_steps(self, run_id, cost: float = 0.0) -> float:
+        """Increment step count + accumulate cost; return the run's total cost."""
         with Session(engine) as s:
             r = s.get(Run, run_id)
-            if r:
-                r.steps += 1
-                s.add(r)
-                s.commit()
+            if not r:
+                return 0.0
+            r.steps += 1
+            r.cost += float(cost or 0.0)
+            s.add(r)
+            s.commit()
+            return r.cost
+
+    # --- memory -------------------------------------------------------------
+    def _memory_on(self, agent: Agent) -> bool:
+        return bool((agent.memory_config or {}).get("enabled"))
+
+    def _load_memory(self, agent: Agent):
+        """Return recent stored items as chat history, or None if disabled."""
+        if not self._memory_on(agent):
+            return None
+        n = int((agent.memory_config or {}).get("max_items", 10))
+        with Session(engine) as s:
+            rows = s.exec(
+                select(Memory).where(Memory.agent_id == agent.id)
+                .order_by(Memory.created_at.desc()).limit(n)
+            ).all()
+        rows = list(reversed(rows))
+        return [{"role": r.role, "content": r.content} for r in rows] or None
+
+    def _save_memory(self, agent: Agent, user_input: str, output: str):
+        if not self._memory_on(agent):
+            return
+        with Session(engine) as s:
+            s.add(Memory(agent_id=agent.id, role="user", content=user_input))
+            s.add(Memory(agent_id=agent.id, role="assistant", content=output))
+            s.commit()
 
     def _finish_run(self, run_id, status):
         with Session(engine) as s:
@@ -198,6 +243,15 @@ class Orchestrator:
 
 
 # --- condition / graph helpers ---------------------------------------------
+def _apply_output_guardrails(agent: Agent, output: str) -> str:
+    """Redact an agent's output if it contains any configured blocked word."""
+    blocked = (agent.guardrails or {}).get("blocked_words") or []
+    low = (output or "").lower()
+    if any(w.lower() in low for w in blocked):
+        return "[blocked by guardrail: output contained a disallowed term]"
+    return output
+
+
 def _passes(condition: Optional[dict], output: str) -> bool:
     """Evaluate an edge condition against an agent's output."""
     if not condition:

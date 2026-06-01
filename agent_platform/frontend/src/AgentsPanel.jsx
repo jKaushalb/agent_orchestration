@@ -10,7 +10,51 @@ const BLANK = {
   max_output_tokens: 8126,
   tools: [],
   channels: [],
+  skills: [],
+  // flat advanced fields (mapped to nested config on save)
+  _scheduleCron: "",
+  _schedulePrompt: "",
+  _memoryEnabled: false,
+  _memoryMax: 10,
+  _maxCost: "",
+  _blocked: "",
 };
+
+// flat form fields -> agent payload (nested config objects)
+function toPayload(f) {
+  const skills = f.skills;
+  const schedule = f._scheduleCron && f._schedulePrompt
+    ? { cron: f._scheduleCron, prompt: f._schedulePrompt }
+    : null;
+  const memory_config = f._memoryEnabled
+    ? { enabled: true, max_items: Number(f._memoryMax) || 10 }
+    : null;
+  const guardrails = {};
+  if (f._maxCost) guardrails.max_cost_usd = Number(f._maxCost);
+  if (f._blocked.trim())
+    guardrails.blocked_words = f._blocked.split(",").map((w) => w.trim()).filter(Boolean);
+  return {
+    name: f.name, role: f.role, system_prompt: f.system_prompt, model: f.model,
+    temperature: f.temperature, max_output_tokens: f.max_output_tokens,
+    tools: f.tools, channels: f.channels, skills,
+    schedule, memory_config,
+    guardrails: Object.keys(guardrails).length ? guardrails : null,
+  };
+}
+
+// agent row -> flat form fields
+function fromAgent(a) {
+  return {
+    ...BLANK, ...a,
+    skills: a.skills || [],
+    _scheduleCron: a.schedule?.cron || "",
+    _schedulePrompt: a.schedule?.prompt || "",
+    _memoryEnabled: !!a.memory_config?.enabled,
+    _memoryMax: a.memory_config?.max_items || 10,
+    _maxCost: a.guardrails?.max_cost_usd ?? "",
+    _blocked: (a.guardrails?.blocked_words || []).join(", "),
+  };
+}
 
 export default function AgentsPanel({ onChange }) {
   const [agents, setAgents] = useState([]);
@@ -41,15 +85,16 @@ export default function AgentsPanel({ onChange }) {
 
   async function save() {
     if (!form.name.trim()) return;
-    if (editId) await api.updateAgent(editId, form);
-    else await api.createAgent(form);
+    const payload = toPayload(form);
+    if (editId) await api.updateAgent(editId, payload);
+    else await api.createAgent(payload);
     setForm(BLANK);
     setEditId(null);
     refresh();
     onChange && onChange();
   }
   function edit(a) {
-    setForm({ ...BLANK, ...a });
+    setForm(fromAgent(a));
     setEditId(a.id);
   }
   async function remove(id) {
@@ -143,6 +188,46 @@ export default function AgentsPanel({ onChange }) {
             </label>
           ))}
         </div>
+
+        <details className="advanced">
+          <summary>Advanced — schedule · memory · guardrails · skills</summary>
+
+          <label className="field">skills (comma-separated)
+            <input value={form.skills.join(", ")}
+              onChange={(e) => set("skills", e.target.value.split(",").map((s) => s.trim()).filter(Boolean))} />
+          </label>
+
+          <div className="adv-group">
+            <span className="checks-label">schedule (cron)</span>
+            <input placeholder="cron e.g. 0 8 * * *" value={form._scheduleCron}
+              onChange={(e) => set("_scheduleCron", e.target.value)} />
+            <input placeholder="scheduled prompt" value={form._schedulePrompt}
+              onChange={(e) => set("_schedulePrompt", e.target.value)} />
+          </div>
+
+          <div className="adv-group">
+            <label className="check">
+              <input type="checkbox" checked={form._memoryEnabled}
+                onChange={(e) => set("_memoryEnabled", e.target.checked)} /> memory enabled
+            </label>
+            <label className="field">max remembered items
+              <input type="number" value={form._memoryMax}
+                onChange={(e) => set("_memoryMax", e.target.value)} />
+            </label>
+          </div>
+
+          <div className="adv-group">
+            <span className="checks-label">guardrails</span>
+            <label className="field">max cost (USD) per run
+              <input type="number" step="0.1" placeholder="e.g. 0.5" value={form._maxCost}
+                onChange={(e) => set("_maxCost", e.target.value)} />
+            </label>
+            <label className="field">blocked words (comma-separated)
+              <input value={form._blocked}
+                onChange={(e) => set("_blocked", e.target.value)} />
+            </label>
+          </div>
+        </details>
 
         <div className="row">
           <button onClick={save}>{editId ? "Save" : "Create"}</button>

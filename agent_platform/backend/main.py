@@ -15,11 +15,13 @@ from .db import init_db
 from .orchestrator import Orchestrator
 from .routes import agents, messages, workflows
 from .runtime.tools import AVAILABLE_TOOLS
+from .scheduler import ScheduleManager
 
 load_dotenv()
 
 orchestrator = Orchestrator()
 telegram = TelegramChannel()
+scheduler = ScheduleManager()
 
 
 @asynccontextmanager
@@ -27,10 +29,13 @@ async def lifespan(app: FastAPI):
     init_db()
     orchestrator.start()  # async message-bus worker
     await telegram.start()  # no-op unless TELEGRAM_BOT_TOKEN is set
-    # Chunk 7: scheduler.
+    scheduler.start()  # agent schedules
+    # agent CRUD reloads the scheduler when schedules change
+    agents.set_on_change(scheduler.reload)
     try:
         yield
     finally:
+        scheduler.shutdown()
         await telegram.stop()
         await orchestrator.stop()
 
