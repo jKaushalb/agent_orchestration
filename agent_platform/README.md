@@ -38,6 +38,11 @@ This single workflow exercises every requirement: master/worker topology,
 async parallel fan-out + join, real tool use (web search, Wikipedia, URL fetch),
 a feedback loop with an edge condition, a chat channel, and persisted history.
 
+It runs real agents making real tool calls, so a full report (six agents plus a
+critic loop) typically takes a few minutes — watch the messages stream in live.
+For an instant smoke test, chat with a single agent directly (right panel →
+pick an agent) instead of the whole workflow.
+
 ## Layout
 
 ```
@@ -48,19 +53,43 @@ agent_platform/
 └── frontend/         # React + React Flow (own package.json)
 ```
 
-## Quick start
+## Quick start (single command)
 
 ```powershell
-# 1. backend deps
-cd agent_platform/backend ; pip install -r requirements.txt
-# 2. copy env template and fill keys
-copy ..\.env.example ..\.env
-# 3. run everything
-cd .. ; python run.py
+cd agent_platform
+pip install -r backend/requirements.txt   # one-time
+copy .env.example .env                     # fill in keys (GEMINI_API_KEY etc.)
+python run.py                              # builds the UI + runs everything
 ```
 
-Open http://localhost:8000/docs — interactive API docs. The web UI arrives in a
-later chunk.
+`run.py` builds the frontend (needs Node) and starts the backend — orchestrator,
+scheduler, and Telegram (if a token is set) — serving the whole app at
+**http://localhost:8000**. On first run it seeds the **Deep Research Assistant**
+workflow so you can try it immediately. `/docs` has the interactive API.
+
+For frontend hot-reload during development, run the API with
+`python run.py --no-frontend` and the Vite dev server with `npm run dev` in
+`frontend/` (it proxies to the backend).
+
+## Verify it works
+
+Each layer has a self-contained check (no UI needed):
+
+```powershell
+python -m backend.verify_crud          # agent CRUD
+python -m backend.verify_orchestrator  # fan-out, join, feedback loop, termination
+python -m backend.verify_config        # memory, guardrails, schedules
+```
+
+## Impact metrics → where they show up
+
+- **Configurable dimensions per agent:** every column on the `Agent` row
+  (identity, behaviour, tools, skills, channels, schedule, memory, interaction
+  rules, guardrails) — all editable in the form.
+- **Zero → working multi-agent workflow:** seeded on first run; or build one in
+  the visual editor in minutes.
+- **End-to-end completion / agent-to-agent reliability:** every hop is a
+  persisted `messages` row with a status, and `Run` tracks steps + cost.
 
 ## API — Agents
 

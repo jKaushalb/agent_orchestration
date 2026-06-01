@@ -5,10 +5,12 @@ async orchestrator (Chunk 3), the scheduler (Chunk 7) and the Telegram
 channel (Chunk 5) here too.
 """
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 from dotenv import load_dotenv
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 
 from .channels.telegram import TelegramChannel
 from .db import init_db
@@ -16,6 +18,7 @@ from .orchestrator import Orchestrator
 from .routes import agents, messages, workflows
 from .runtime.tools import AVAILABLE_TOOLS
 from .scheduler import ScheduleManager
+from .seed import seed_if_empty
 
 load_dotenv()
 
@@ -27,6 +30,7 @@ scheduler = ScheduleManager()
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     init_db()
+    seed_if_empty()  # load the Deep Research demo on first run
     orchestrator.start()  # async message-bus worker
     await telegram.start()  # no-op unless TELEGRAM_BOT_TOKEN is set
     scheduler.start()  # agent schedules
@@ -83,3 +87,10 @@ PRESET_MODELS = [
 def list_models():
     """Preset model options for the agent form (custom ids are still allowed)."""
     return PRESET_MODELS
+
+
+# Serve the built frontend (single-command deploy). Mounted last so API routes
+# above take precedence; html=True makes it a SPA fallback. No-op until built.
+_DIST = Path(__file__).resolve().parents[1] / "frontend" / "dist"
+if _DIST.is_dir():
+    app.mount("/", StaticFiles(directory=str(_DIST), html=True), name="frontend")
