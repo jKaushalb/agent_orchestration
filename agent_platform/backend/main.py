@@ -10,6 +10,7 @@ from dotenv import load_dotenv
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from .channels.telegram import TelegramChannel
 from .db import init_db
 from .orchestrator import Orchestrator
 from .routes import agents, messages
@@ -18,16 +19,19 @@ from .runtime.tools import AVAILABLE_TOOLS
 load_dotenv()
 
 orchestrator = Orchestrator()
+telegram = TelegramChannel()
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     init_db()
     orchestrator.start()  # async message-bus worker
-    # Chunk 5: start Telegram. Chunk 7: scheduler.
+    await telegram.start()  # no-op unless TELEGRAM_BOT_TOKEN is set
+    # Chunk 7: scheduler.
     try:
         yield
     finally:
+        await telegram.stop()
         await orchestrator.stop()
 
 

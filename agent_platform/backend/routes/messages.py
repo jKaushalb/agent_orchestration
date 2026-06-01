@@ -15,7 +15,8 @@ from pydantic import BaseModel
 from sqlmodel import Session, select
 
 from ..db import engine, get_session
-from ..models import Message, Run, Workflow
+from ..ingest import IngestError, create_run
+from ..models import Message, Run
 
 router = APIRouter(tags=["runs"])
 
@@ -29,36 +30,18 @@ class StartRun(BaseModel):
 
 
 @router.post("/runs", status_code=201)
-def start_run(payload: StartRun, session: Session = Depends(get_session)):
-    # Resolve entry recipients: workflow entry nodes, or a direct recipient.
-    entries: List[str] = []
-    if payload.workflow_id:
-        wf = session.get(Workflow, payload.workflow_id)
-        if wf is None:
-            raise HTTPException(404, "Workflow not found")
-        entries = list(wf.graph.get("entry", []))
-        if not entries:
-            raise HTTPException(400, "Workflow has no entry nodes")
-    elif payload.recipient:
-        entries = [payload.recipient]
-    else:
-        raise HTTPException(400, "Provide workflow_id or recipient")
-
-    run = Run(workflow_id=payload.workflow_id, topic=payload.content,
-              max_steps=payload.max_steps)
-    session.add(run)
-    session.commit()
-    session.refresh(run)
-
-    for agent_id in entries:
-        session.add(Message(
-            run_id=run.id, sender="user", recipient=agent_id, label="user",
+def start_run(payload: StartRun):
+    try:
+        run_id = create_run(
             content=payload.content,
-            content_type="image" if payload.attachments else "text",
-            attachments=payload.attachments, status="pending",
-        ))
-    session.commit()
-    return {"run_id": run.id}
+            workflow_id=payload.workflow_id,
+            recipient=payload.recipient,
+            attachments=payload.attachments,
+            max_steps=payload.max_steps,
+        )
+    except IngestError as e:
+        raise HTTPException(400, str(e))
+    return {"run_id": run_id}
 
 
 @router.get("/runs/{run_id}")

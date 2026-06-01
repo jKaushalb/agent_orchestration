@@ -132,6 +132,9 @@ class Run(SQLModel, table=True):
     status: str = "running"  # running | completed | failed
     steps: int = 0           # agent executions so far (loop guard)
     max_steps: int = 30      # hard cap so feedback loops always terminate
+    # which channel started this run, so terminal output is delivered back there
+    channel: str = "web"     # web | telegram
+    channel_chat_id: Optional[str] = None
     created_at: datetime = Field(default_factory=datetime.utcnow)
 
 
@@ -157,4 +160,6 @@ class Message(SQLModel, table=True):
     )
     status: str = "pending"
     error: Optional[str] = None
+    # set once a terminal message has been pushed to an external channel
+    delivered: bool = False
     created_at: datetime = Field(default_factory=datetime.utcnow)

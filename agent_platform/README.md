@@ -138,4 +138,21 @@ npm install
 npm run dev   # http://localhost:5173 (API calls proxied to :8000)
 ```
 
+## Telegram channel
+
+An inbound Telegram message enters the **same message bus** as the web UI, and
+terminal agent output is pushed back to the chat — so one agent/workflow is
+reachable from both web and Telegram, with shared, persisted history.
+
+- **Long polling** → no public URL, no webhook, no business approval; runs fully
+  local. Enabled only when `TELEGRAM_BOT_TOKEN` is set (otherwise a silent
+  no-op).
+- Text **and** images are supported (a photo is base64-encoded into the run).
+- Entry point: `TELEGRAM_ENTRY_WORKFLOW` (a workflow id) or
+  `TELEGRAM_ENTRY_AGENT` (an agent id); defaults to the first workflow, else the
+  first agent.
+
+Setup: create a bot with [@BotFather](https://t.me/BotFather), put the token in
+`.env`, restart, and message the bot.
+
 
