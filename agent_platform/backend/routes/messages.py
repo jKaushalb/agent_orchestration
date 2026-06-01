@@ -44,11 +44,39 @@ def start_run(payload: StartRun):
     return {"run_id": run_id}
 
 
+@router.get("/runs")
+def list_runs(session: Session = Depends(get_session)):
+    """Past + active sessions, newest first (for the history list)."""
+    return session.exec(select(Run).order_by(Run.created_at.desc())).all()
+
+
 @router.get("/runs/{run_id}")
 def get_run(run_id: str, session: Session = Depends(get_session)):
     run = session.get(Run, run_id)
     if run is None:
         raise HTTPException(404, "Run not found")
+    return run
+
+
+@router.post("/runs/{run_id}/stop")
+def stop_run(run_id: str, session: Session = Depends(get_session)):
+    """Stop a running workflow: mark it stopped and settle its open messages so
+    the orchestrator does no further work for it."""
+    run = session.get(Run, run_id)
+    if run is None:
+        raise HTTPException(404, "Run not found")
+    if run.status == "running":
+        run.status = "stopped"
+        session.add(run)
+        open_msgs = session.exec(
+            select(Message).where(Message.run_id == run_id)
+            .where(Message.status.in_(["pending", "processing"]))
+        ).all()
+        for m in open_msgs:
+            m.status = "done"
+            session.add(m)
+        session.commit()
+        session.refresh(run)
     return run
 
 

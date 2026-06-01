@@ -103,6 +103,12 @@ class Orchestrator:
             self._settle(m["id"], "failed", error=f"{type(e).__name__}: {e}")
             return
 
+        # The run may have been stopped while this agent was working — if so,
+        # record nothing downstream and settle quietly.
+        if self._run_status(run.id) != "running":
+            self._settle(m["id"], "done")
+            return
+
         # Guardrail: redact output containing blocked words.
         output = _apply_output_guardrails(agent, output)
         self._save_memory(agent, m["content"], output)
@@ -169,6 +175,11 @@ class Orchestrator:
     def _load(self, run_id: str, agent_id: str):
         with Session(engine) as s:
             return s.get(Run, run_id), s.get(Agent, agent_id)
+
+    def _run_status(self, run_id: str):
+        with Session(engine) as s:
+            r = s.get(Run, run_id)
+            return r.status if r else None
 
     def _graph(self, workflow_id: Optional[str]) -> dict:
         if not workflow_id:

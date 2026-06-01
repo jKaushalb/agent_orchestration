@@ -8,20 +8,29 @@ function colorFor(label) {
   return `hsl(${h} 65% 45%)`;
 }
 
+function runLabel(r) {
+  const when = new Date(r.created_at).toLocaleString();
+  const topic = (r.topic || "(no topic)").slice(0, 40);
+  return `[${r.status}] ${topic} — ${when}`;
+}
+
 export default function ChatPanel({ version }) {
   const [agents, setAgents] = useState([]);
   const [workflows, setWorkflows] = useState([]);
+  const [runs, setRuns] = useState([]);
   const [target, setTarget] = useState("");
   const [text, setText] = useState("");
   const [image, setImage] = useState(null);
   const [messages, setMessages] = useState([]);
   const [running, setRunning] = useState(false);
+  const [runId, setRunId] = useState(null);
   const closeRef = useRef(null);
   const bottomRef = useRef(null);
 
   useEffect(() => {
     api.listAgents().then(setAgents).catch(() => {});
     api.listWorkflows().then(setWorkflows).catch(() => {});
+    refreshRuns();
   }, [version]);
 
   useEffect(() => {
@@ -36,6 +45,19 @@ export default function ChatPanel({ version }) {
     }
   }, [agents, workflows]);
 
+  function refreshRuns() {
+    api.listRuns().then(setRuns).catch(() => {});
+  }
+
+  function streamInto(id, onDone) {
+    closeRef.current?.();
+    closeRef.current = streamRun(
+      id,
+      (m) => setMessages((prev) => [...prev.filter((x) => x.id !== "local" && x.id !== m.id), m]),
+      () => { setRunning(false); refreshRuns(); onDone && onDone(); }
+    );
+  }
+
   async function send() {
     if ((!text.trim() && !image) || !target || running) return;
     const payload = { content: text };
@@ -43,25 +65,50 @@ export default function ChatPanel({ version }) {
     else payload.recipient = target.slice(6);
     if (image) payload.attachments = [{ type: "image", data: image }];
 
-    setMessages([
-      { id: "local", label: "you", sender: "user", content: text, status: "sent" },
-    ]);
+    setMessages([{ id: "local", label: "you", sender: "user", content: text, status: "sent" }]);
     setText("");
     setImage(null);
     setRunning(true);
 
     try {
       const { run_id } = await api.startRun(payload);
-      closeRef.current?.();
-      closeRef.current = streamRun(
-        run_id,
-        (m) => setMessages((prev) => [...prev.filter((x) => x.id !== "local"), m]),
-        () => setRunning(false)
-      );
+      setRunId(run_id);
+      refreshRuns();
+      streamInto(run_id);
     } catch (e) {
       setMessages((prev) => [...prev, { id: "err", label: "error", content: String(e) }]);
       setRunning(false);
     }
+  }
+
+  // load a past or active session
+  async function loadRun(id) {
+    closeRef.current?.();
+    if (!id) { setRunId(null); setMessages([]); setRunning(false); return; }
+    setRunId(id);
+    const [msgs, run] = await Promise.all([api.getMessages(id), api.getRun(id)]);
+    setMessages(msgs);
+    if (run.status === "running") {
+      setRunning(true);
+      streamInto(id);
+    } else {
+      setRunning(false);
+    }
+  }
+
+  async function stop() {
+    if (!runId) return;
+    await api.stopRun(runId);
+    closeRef.current?.();
+    setRunning(false);
+    refreshRuns();
+  }
+
+  function newSession() {
+    closeRef.current?.();
+    setRunId(null);
+    setMessages([]);
+    setRunning(false);
   }
 
   function onFile(e) {
@@ -75,7 +122,7 @@ export default function ChatPanel({ version }) {
   return (
     <section className="chat">
       <div className="chat-controls">
-        <select value={target} onChange={(e) => setTarget(e.target.value)}>
+        <select value={target} onChange={(e) => setTarget(e.target.value)} title="where new requests go">
           <optgroup label="Workflows">
             {workflows.map((w) => (
               <option key={w.id} value={`wf:${w.id}`}>⚙ {w.name}</option>
@@ -87,6 +134,19 @@ export default function ChatPanel({ version }) {
             ))}
           </optgroup>
         </select>
+
+        <select className="sessions" value={runId || ""} onChange={(e) => loadRun(e.target.value)}
+          title="past sessions">
+          <option value="">— sessions ({runs.length}) —</option>
+          {runs.map((r) => (
+            <option key={r.id} value={r.id}>{runLabel(r)}</option>
+          ))}
+        </select>
+
+        <button className="ghost" onClick={newSession}>＋ New</button>
+        {running
+          ? <button className="danger" onClick={stop}>■ Stop</button>
+          : <span className="muted">idle</span>}
         {running && <span className="running">● running…</span>}
       </div>
 
