@@ -24,8 +24,8 @@ src/agents/*.jpg
 
 # Node / frontend build
 node_modules/
-frontend/dist/
-frontend/build/
+**/dist/
+**/build/
 
 # Runtime artifacts (platform)
 *.db

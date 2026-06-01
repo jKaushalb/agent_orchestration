@@ -120,4 +120,22 @@ stream it live with `GET /messages/stream?run_id=...` (SSE). The routing engine
 is verified end-to-end (fan-out, join, loop, termination) by
 `python -m backend.verify_orchestrator`.
 
+## Web UI
+
+`frontend/` is a React + Vite app (separate project, talks to the backend over
+REST + SSE only):
+
+- **Left — chat:** a CrewAI-style stream. Pick a target (a workflow or a single
+  agent), send text or an uploaded image, and watch every agent's message stream
+  in live with a colour-coded label. Backed by the persisted `messages` table,
+  so history survives reloads.
+- **Right — agents:** create / edit / delete agents and all their config
+  (model, prompt, temperature, tools, channels).
+
+```bash
+cd frontend
+npm install
+npm run dev   # http://localhost:5173 (API calls proxied to :8000)
+```
+
 
