@@ -79,8 +79,8 @@ export default function AgentsPanel({ onChange }) {
   function set(k, v) {
     setForm((f) => ({ ...f, [k]: v }));
   }
-  function toggle(list, key, v) {
-    set(list, form[list].includes(v) ? form[list].filter((x) => x !== v) : [...form[list], v]);
+  function toggle(list, value) {
+    set(list, form[list].includes(value) ? form[list].filter((x) => x !== value) : [...form[list], value]);
   }
 
   async function save() {
@@ -230,8 +230,11 @@ export default function AgentsPanel({ onChange }) {
         </details>
 
         <div className="row">
-          <button onClick={save}>{editId ? "Save" : "Create"}</button>
+          <button onClick={save} disabled={!form.name.trim()}>
+            {editId ? "Save" : "Create"}
+          </button>
           {editId && <button onClick={() => { setForm(BLANK); setEditId(null); }}>Cancel</button>}
+          {!form.name.trim() && <span className="muted">enter a name first</span>}
         </div>
       </div>
     </aside>
