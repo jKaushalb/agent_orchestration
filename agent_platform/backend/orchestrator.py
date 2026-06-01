@@ -15,6 +15,9 @@ sender only ever writes a row; it never awaits the receiver) and fully
 persisted (every row is history the UI can read).
 """
 import asyncio
+import logging
+import os
+import traceback
 from typing import Any, Callable, Dict, List, Optional
 
 from sqlmodel import Session, select
@@ -23,6 +26,8 @@ from .db import engine
 from .models import Agent, Memory, Message, Run, Workflow
 from .runtime.runner import AgentRunConfig, run_agent
 
+logger = logging.getLogger("agent_platform.orchestrator")
+
 
 # The agent-execution function: (config, content, history) -> RunResult-like.
 # Tests override this with a fake to avoid LLM calls.
@@ -30,13 +35,19 @@ RunFn = Callable[..., Any]
 
 
 class Orchestrator:
-    def __init__(self, run_fn: RunFn = run_agent, poll_interval: float = 0.4):
+    def __init__(self, run_fn: RunFn = run_agent, poll_interval: float = 0.4,
+                 max_concurrency: Optional[int] = None):
         self._run_fn = run_fn
         self._poll = poll_interval
         self._task: Optional[asyncio.Task] = None
         self._stop = asyncio.Event()
         # join buffers: (run_id, target_agent_id) -> {source_agent_id: content}
         self._joins: Dict[tuple, Dict[str, str]] = {}
+        # Cap concurrent agent (LLM) calls so a fan-out doesn't burst the API and
+        # trip rate limits. Override via AGENT_MAX_CONCURRENCY (default 2).
+        if max_concurrency is None:
+            max_concurrency = int(os.environ.get("AGENT_MAX_CONCURRENCY", "2"))
+        self._sem = asyncio.Semaphore(max(1, max_concurrency))
 
     # --- lifecycle ----------------------------------------------------------
     def start(self) -> None:
@@ -94,13 +105,26 @@ class Orchestrator:
             return
 
         cfg = AgentRunConfig.from_row(agent)
-        history = self._load_memory(agent)  # prior context if memory is enabled
+        # Broader context: cross-run memory (if enabled) + this run's transcript so
+        # far, so each agent sees the actual artifacts (e.g. the Writer's draft),
+        # not just the single previous message.
+        history = (self._load_memory(agent) or []) + self._run_transcript(run.id, m["id"])
+        history = history or None
         try:
-            result = await asyncio.to_thread(self._run_fn, cfg, m["content"], history)
+            async with self._sem:  # throttle concurrent LLM calls
+                result = await asyncio.to_thread(self._run_fn, cfg, m["content"], history)
             output = result.output if hasattr(result, "output") else str(result)
             cost = getattr(result, "cost", 0.0)
-        except Exception as e:  # agent failed -> mark and stop this branch
-            self._settle(m["id"], "failed", error=f"{type(e).__name__}: {e}")
+        except Exception as e:  # agent failed -> log it, surface it, end the run
+            err = f"{type(e).__name__}: {e}"
+            logger.error("agent '%s' failed in run %s: %s", agent.name, run.id, err)
+            traceback.print_exc()
+            self._settle(m["id"], "failed", error=err)
+            # Make the failure visible in the UI / channel instead of hanging.
+            self._emit_raw(run.id, sender=agent.id, label=f"{agent.name} (error)",
+                           content=f"{agent.name} failed: {err}", recipient="user",
+                           status="done")
+            self._finish_run(run.id, "failed")
             return
 
         # The run may have been stopped while this agent was working — if so,
@@ -161,8 +185,15 @@ class Orchestrator:
             # (two non-join edges into one node) is NOT treated as a loop.
             if (agent.id, target) in loop_edges:
                 if not self._take_loop(run.id):
-                    # loop budget exhausted -> stop looping, deliver to the user.
-                    self._emit(run.id, agent, output, recipient="user", status="done")
+                    # Loop budget exhausted -> stop looping and deliver the last
+                    # actual artifact from the loop's target (e.g. the Writer's
+                    # latest draft), not this agent's feedback message.
+                    last = self._last_message_of(run.id, target)
+                    if last and last.content.strip():
+                        self._emit_raw(run.id, sender=last.sender, label=last.label,
+                                       content=last.content, recipient="user", status="done")
+                    else:
+                        self._emit(run.id, agent, output, recipient="user", status="done")
                     self._finish_run(run.id, "completed")
                     continue
             self._emit(run.id, agent, output, recipient=target, status="pending")
@@ -190,6 +221,33 @@ class Orchestrator:
         with Session(engine) as s:
             r = s.get(Run, run_id)
             return r.status if r else None
+
+    def _run_transcript(self, run_id: str, exclude_id: str):
+        """The run's prior messages as chat turns, so the current agent has the
+        full context (every agent's output is labelled)."""
+        with Session(engine) as s:
+            rows = s.exec(
+                select(Message).where(Message.run_id == run_id)
+                .order_by(Message.created_at)
+            ).all()
+        turns = []
+        for m in rows:
+            if m.id == exclude_id or not (m.content or "").strip():
+                continue
+            if m.recipient == "user":
+                continue  # delivery copies, not part of the working context
+            role = "user" if m.sender == "user" else "assistant"
+            turns.append({"role": role, "content": f"[{m.label}] {m.content}"})
+        return turns
+
+    def _last_message_of(self, run_id: str, agent_id: str):
+        """The most recent message produced by a given agent in this run."""
+        with Session(engine) as s:
+            return s.exec(
+                select(Message).where(Message.run_id == run_id)
+                .where(Message.sender == agent_id)
+                .order_by(Message.created_at.desc())
+            ).first()
 
     def _take_loop(self, run_id: str) -> bool:
         """Consume one loop turn. Returns False if the run is at its max_loops."""

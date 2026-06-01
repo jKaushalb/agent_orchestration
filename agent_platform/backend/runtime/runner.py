@@ -8,12 +8,42 @@ the final assistant text plus the call cost.
 It is provider-agnostic: litellm resolves credentials from the model-name
 prefix (e.g. ``gemini/...`` -> GEMINI_API_KEY).
 """
+import logging
+import time
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional
 
 import litellm
 
 from .tools import TOOL_REGISTRY, TOOLS_TO_FUNCTION
+
+logger = logging.getLogger("agent_platform.runner")
+
+# Retry transient rate-limit / overload errors with exponential backoff. Free
+# tiers (e.g. Gemini) easily hit 429 RESOURCE_EXHAUSTED when agents run in
+# parallel, so we wait a few seconds and try again.
+_RETRY_BACKOFF = [4, 8, 16]  # seconds between attempts
+_RATE_LIMIT_HINTS = ("rate", "429", "resource_exhausted", "quota", "overloaded", "503")
+
+
+def _is_rate_limit(exc: Exception) -> bool:
+    name = type(exc).__name__.lower()
+    text = str(exc).lower()
+    return "ratelimit" in name or any(h in text for h in _RATE_LIMIT_HINTS)
+
+
+def _completion_with_retry(kwargs: Dict[str, Any]):
+    """litellm.completion with backoff on rate-limit/overload errors."""
+    for attempt, wait in enumerate([0] + _RETRY_BACKOFF):
+        if wait:
+            logger.warning("rate-limited; retrying in %ss (attempt %s)", wait, attempt)
+            time.sleep(wait)
+        try:
+            return litellm.completion(**kwargs)
+        except Exception as e:  # noqa: BLE001
+            if _is_rate_limit(e) and attempt < len(_RETRY_BACKOFF):
+                continue
+            raise
 
 
 @dataclass
@@ -83,7 +113,7 @@ def run_agent(
             kwargs["tools"] = tool_defs
             kwargs["tool_choice"] = "auto"
 
-        response = litellm.completion(**kwargs)
+        response = _completion_with_retry(kwargs)
         total_cost += _cost_of(response)
         msg = response.choices[0].message
 
