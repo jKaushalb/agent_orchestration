@@ -80,9 +80,20 @@ metric): identity (`name`, `role`), behaviour (`system_prompt`, `model`,
 
 Smoke-test the API: `python -m backend.verify_crud` (from `agent_platform/`).
 
-## Build status
+## Runtime & tools
 
-Built in small, committed chunks (see `../../plan.md`). Done: **Chunk 0**
-(scaffold + decisions), **Chunk 1** (agent CRUD backend).
+The runtime (`backend/runtime/`) executes agent logic on top of `litellm`:
+`run_agent(config, user_input, history)` runs the model, executes any tool
+calls in a manual loop, and returns the final text + per-call cost.
+
+Tool catalog (an agent's `tools` field selects from these):
+
+| Tool | What it does |
+|---|---|
+| `web_search` | Web search via Tavily (needs `TAVILY_API_KEY`) |
+| `web_search2` | Web search via DuckDuckGo (no key) |
+| `wikipedia_extract` | Wikipedia summary + first sections |
+| `fetch_url` | Fetch a page and return cleaned readable text |
+| `write_file` / `read_file` / `list_files` | Read/write files in a sandboxed `workspace/` |
 
 
