@@ -15,6 +15,8 @@ sender only ever writes a row; it never awaits the receiver) and fully
 persisted (every row is history the UI can read).
 """
 import asyncio
+import logging
+import traceback
 from typing import Any, Callable, Dict, List, Optional
 
 from sqlmodel import Session, select
@@ -22,6 +24,8 @@ from sqlmodel import Session, select
 from .db import engine
 from .models import Agent, Memory, Message, Run, Workflow
 from .runtime.runner import AgentRunConfig, run_agent
+
+logger = logging.getLogger("agent_platform.orchestrator")
 
 
 # The agent-execution function: (config, content, history) -> RunResult-like.
@@ -103,8 +107,16 @@ class Orchestrator:
             result = await asyncio.to_thread(self._run_fn, cfg, m["content"], history)
             output = result.output if hasattr(result, "output") else str(result)
             cost = getattr(result, "cost", 0.0)
-        except Exception as e:  # agent failed -> mark and stop this branch
-            self._settle(m["id"], "failed", error=f"{type(e).__name__}: {e}")
+        except Exception as e:  # agent failed -> log it, surface it, end the run
+            err = f"{type(e).__name__}: {e}"
+            logger.error("agent '%s' failed in run %s: %s", agent.name, run.id, err)
+            traceback.print_exc()
+            self._settle(m["id"], "failed", error=err)
+            # Make the failure visible in the UI / channel instead of hanging.
+            self._emit_raw(run.id, sender=agent.id, label=f"{agent.name} (error)",
+                           content=f"{agent.name} failed: {err}", recipient="user",
+                           status="done")
+            self._finish_run(run.id, "failed")
             return
 
         # The run may have been stopped while this agent was working — if so,
