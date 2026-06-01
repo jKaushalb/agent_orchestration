@@ -3,13 +3,20 @@
 Single-file local database -> satisfies the "fully local, single command"
 requirement with zero setup. The DB file lives under backend/data/.
 """
+import os
 from pathlib import Path
 from sqlalchemy import inspect, text
 from sqlmodel import SQLModel, Session, create_engine
 
-DATA_DIR = Path(__file__).parent / "data"
-DATA_DIR.mkdir(exist_ok=True)
-DB_PATH = DATA_DIR / "platform.db"
+# DB path is overridable via PLATFORM_DB (lets tests / extra instances use their
+# own file instead of contending for the default one).
+if os.environ.get("PLATFORM_DB"):
+    DB_PATH = Path(os.environ["PLATFORM_DB"])
+    DB_PATH.parent.mkdir(parents=True, exist_ok=True)
+else:
+    DATA_DIR = Path(__file__).parent / "data"
+    DATA_DIR.mkdir(exist_ok=True)
+    DB_PATH = DATA_DIR / "platform.db"
 
 # check_same_thread=False so the async orchestrator and request handlers can
 # share the engine across threads.

@@ -145,6 +145,7 @@ class Orchestrator:
             return
 
         join_counts = _join_in_degree(graph)
+        loop_edges = _loop_edges(graph)  # edges that close a cycle in the graph
         for e in targets:
             target = e["target"]
             if target == "user":
@@ -155,8 +156,10 @@ class Orchestrator:
                 # fan-in barrier: wait for every join edge into this target.
                 self._route_join(run, agent, output, target, join_counts[target])
                 continue
-            # A back-edge (target already ran this run) is a feedback-loop turn.
-            if self._already_ran(run.id, target):
+            # A cycle-closing edge (e.g. Critic -> Writer) is a feedback-loop turn.
+            # This is structural, not arrival-order based, so a plain diamond
+            # (two non-join edges into one node) is NOT treated as a loop.
+            if (agent.id, target) in loop_edges:
                 if not self._take_loop(run.id):
                     # loop budget exhausted -> stop looping, deliver to the user.
                     self._emit(run.id, agent, output, recipient="user", status="done")
@@ -187,15 +190,6 @@ class Orchestrator:
         with Session(engine) as s:
             r = s.get(Run, run_id)
             return r.status if r else None
-
-    def _already_ran(self, run_id: str, agent_id: str) -> bool:
-        """True if this agent has already produced output in this run (so an
-        edge back to it is a feedback-loop turn, not first-time routing)."""
-        with Session(engine) as s:
-            return s.exec(
-                select(Message).where(Message.run_id == run_id)
-                .where(Message.sender == agent_id)
-            ).first() is not None
 
     def _take_loop(self, run_id: str) -> bool:
         """Consume one loop turn. Returns False if the run is at its max_loops."""
@@ -300,6 +294,39 @@ def _passes(condition: Optional[dict], output: str) -> bool:
         hit = condition["contains"].lower() in (output or "").lower()
         return not hit if condition.get("negate") else hit
     return True
+
+
+def _loop_edges(graph: dict) -> set:
+    """The feedback-loop edges: DFS back-edges (an edge to a node currently on
+    the recursion stack, i.e. an ancestor). This picks only the *returning* edge
+    of a cycle — e.g. Critic->Writer but not the forward Writer->Critic — and a
+    plain diamond (A->B->D, A->C->D) yields none."""
+    adj: Dict[str, list] = {}
+    nodes = set()
+    for e in graph.get("edges", []):
+        adj.setdefault(e["source"], []).append(e["target"])
+        nodes.add(e["source"])
+        nodes.add(e["target"])
+
+    back: set = set()
+    visited: set = set()
+    on_stack: set = set()
+
+    def dfs(u: str):
+        visited.add(u)
+        on_stack.add(u)
+        for v in adj.get(u, []):
+            if v in on_stack:
+                back.add((u, v))         # edge to an ancestor -> back-edge
+            elif v not in visited:
+                dfs(v)
+        on_stack.discard(u)
+
+    # Start from entry nodes, then any unvisited node (disconnected pieces).
+    for root in list(graph.get("entry", [])) + list(nodes):
+        if root not in visited:
+            dfs(root)
+    return back
 
 
 def _join_in_degree(graph: dict) -> Dict[str, int]:
