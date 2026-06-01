@@ -36,13 +36,13 @@ def create_run(
     attachments: Optional[List[Dict[str, Any]]] = None,
     channel: str = "web",
     chat_id: Optional[str] = None,
-    max_steps: int = 30,
+    max_loops: int = 3,
 ) -> str:
     """Create a Run and the entry message(s); returns the run id."""
     with Session(engine) as session:
         entries = resolve_entries(session, workflow_id, recipient)
         run = Run(
-            workflow_id=workflow_id, topic=content, max_steps=max_steps,
+            workflow_id=workflow_id, topic=content, max_loops=max_loops,
             channel=channel, channel_chat_id=chat_id,
         )
         session.add(run)

@@ -141,8 +141,10 @@ Routing is data, so every topology is just an edge set:
   node fires once, with all inputs merged (Researchers → Writer)
 - **conditions** — an edge fires only if its `condition` matches the output,
   e.g. `{"contains": "approved"}` or the same with `"negate": true`
-- **feedback loops** — an edge can point back upstream (Critic → Writer); the
-  run's `max_steps` guarantees termination
+- **feedback loops** — an edge can point back upstream (Critic → Writer). Each
+  time the engine follows such a back-edge counts as one loop turn; a run stops
+  looping after **`max_loops`** turns (the chat's "loops" input, default 3) and
+  delivers the latest output. `max_steps` is a separate absolute safety cap.
 
 Start a run with `POST /runs`; read history with `GET /messages?run_id=...`;
 stream it live with `GET /messages/stream?run_id=...` (SSE). The routing engine
@@ -197,9 +199,14 @@ reachable from both web and Telegram, with shared, persisted history.
   local. Enabled only when `TELEGRAM_BOT_TOKEN` is set (otherwise a silent
   no-op).
 - Text **and** images are supported (a photo is base64-encoded into the run).
-- Entry point: `TELEGRAM_ENTRY_WORKFLOW` (a workflow id) or
-  `TELEGRAM_ENTRY_AGENT` (an agent id); defaults to the first workflow, else the
-  first agent.
+- Entry point: by default a chat uses `TELEGRAM_ENTRY_WORKFLOW` /
+  `TELEGRAM_ENTRY_AGENT` (env), else the first workflow. Each chat can override
+  this with bot commands:
+  - `/workflows` — list workflows
+  - `/use <name|id>` — pick a workflow (or an agent) for this chat
+  - `/turns <n>` — set the max loop turns for this chat (default 3)
+  - `/current` — show the chat's current selection
+  - `/help` — usage
 
 Setup: create a bot with [@BotFather](https://t.me/BotFather), put the token in
 `.env`, restart, and message the bot.

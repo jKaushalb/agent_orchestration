@@ -154,8 +154,15 @@ class Orchestrator:
             if e.get("join"):
                 # fan-in barrier: wait for every join edge into this target.
                 self._route_join(run, agent, output, target, join_counts[target])
-            else:
-                self._emit(run.id, agent, output, recipient=target, status="pending")
+                continue
+            # A back-edge (target already ran this run) is a feedback-loop turn.
+            if self._already_ran(run.id, target):
+                if not self._take_loop(run.id):
+                    # loop budget exhausted -> stop looping, deliver to the user.
+                    self._emit(run.id, agent, output, recipient="user", status="done")
+                    self._finish_run(run.id, "completed")
+                    continue
+            self._emit(run.id, agent, output, recipient=target, status="pending")
 
     def _route_join(self, run: Run, agent: Agent, output: str, target: str, need: int):
         """Buffer fan-in until every source has arrived, then fire the target once."""
@@ -180,6 +187,28 @@ class Orchestrator:
         with Session(engine) as s:
             r = s.get(Run, run_id)
             return r.status if r else None
+
+    def _already_ran(self, run_id: str, agent_id: str) -> bool:
+        """True if this agent has already produced output in this run (so an
+        edge back to it is a feedback-loop turn, not first-time routing)."""
+        with Session(engine) as s:
+            return s.exec(
+                select(Message).where(Message.run_id == run_id)
+                .where(Message.sender == agent_id)
+            ).first() is not None
+
+    def _take_loop(self, run_id: str) -> bool:
+        """Consume one loop turn. Returns False if the run is at its max_loops."""
+        with Session(engine) as s:
+            r = s.get(Run, run_id)
+            if not r:
+                return False
+            if r.loops >= r.max_loops:
+                return False
+            r.loops += 1
+            s.add(r)
+            s.commit()
+            return True
 
     def _graph(self, workflow_id: Optional[str]) -> dict:
         if not workflow_id:

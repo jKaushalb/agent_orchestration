@@ -24,6 +24,7 @@ export default function ChatPanel({ version }) {
   const [messages, setMessages] = useState([]);
   const [running, setRunning] = useState(false);
   const [runId, setRunId] = useState(null);
+  const [maxLoops, setMaxLoops] = useState(3);
   const closeRef = useRef(null);
   const bottomRef = useRef(null);
 
@@ -60,7 +61,7 @@ export default function ChatPanel({ version }) {
 
   async function send() {
     if ((!text.trim() && !image) || !target || running) return;
-    const payload = { content: text };
+    const payload = { content: text, max_loops: Number(maxLoops) || 0 };
     if (target.startsWith("wf:")) payload.workflow_id = target.slice(3);
     else payload.recipient = target.slice(6);
     if (image) payload.attachments = [{ type: "image", data: image }];
@@ -142,6 +143,12 @@ export default function ChatPanel({ version }) {
             <option key={r.id} value={r.id}>{runLabel(r)}</option>
           ))}
         </select>
+
+        <label className="turns" title="max feedback-loop turns before the run auto-stops">
+          loops
+          <input type="number" min="0" value={maxLoops}
+            onChange={(e) => setMaxLoops(e.target.value)} />
+        </label>
 
         <button className="ghost" onClick={newSession}>＋ New</button>
         {running

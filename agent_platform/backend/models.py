@@ -129,9 +129,11 @@ class Run(SQLModel, table=True):
     id: str = Field(default_factory=_uuid, primary_key=True)
     workflow_id: Optional[str] = None
     topic: str = ""
-    status: str = "running"  # running | completed | failed
-    steps: int = 0           # agent executions so far (loop guard)
-    max_steps: int = 30      # hard cap so feedback loops always terminate
+    status: str = "running"  # running | completed | failed | stopped
+    steps: int = 0           # agent executions so far (absolute safety cap)
+    max_steps: int = 60      # hard cap so a run can never run away
+    loops: int = 0           # feedback-loop iterations taken (back-edges followed)
+    max_loops: int = 3       # user-facing "max turns in a loop"
     cost: float = 0.0        # accumulated USD across the run (for cost guardrails)
     # which channel started this run, so terminal output is delivered back there
     channel: str = "web"     # web | telegram | schedule

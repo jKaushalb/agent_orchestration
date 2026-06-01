@@ -48,6 +48,9 @@ class TelegramChannel:
         self.app = None
         self._deliver_task: Optional[asyncio.Task] = None
         self._stop = asyncio.Event()
+        # per-chat selection: chat_id -> ("wf"|"agent", id), and loop budget
+        self._chat_target: dict = {}
+        self._chat_loops: dict = {}
 
     @property
     def enabled(self) -> bool:
@@ -56,10 +59,19 @@ class TelegramChannel:
     async def start(self) -> None:
         if not self.enabled:
             return
-        from telegram.ext import (ApplicationBuilder, MessageHandler, filters)
+        from telegram.ext import (ApplicationBuilder, CommandHandler,
+                                   MessageHandler, filters)
 
         self.app = ApplicationBuilder().token(self.token).build()
-        self.app.add_handler(MessageHandler(filters.TEXT | filters.PHOTO, self._on_message))
+        self.app.add_handler(CommandHandler(["start", "help"], self._cmd_help))
+        self.app.add_handler(CommandHandler("workflows", self._cmd_workflows))
+        self.app.add_handler(CommandHandler("use", self._cmd_use))
+        self.app.add_handler(CommandHandler("turns", self._cmd_turns))
+        self.app.add_handler(CommandHandler("current", self._cmd_current))
+        # non-command text + photos go to the agent/workflow
+        self.app.add_handler(
+            MessageHandler((filters.TEXT & ~filters.COMMAND) | filters.PHOTO, self._on_message)
+        )
         await self.app.initialize()
         await self.app.start()
         await self.app.updater.start_polling()
@@ -90,14 +102,89 @@ class TelegramChannel:
             attachments = [{"type": "image", "data": base64.b64encode(bytes(buf)).decode()}]
             text = text or "Analyze this image."
 
-        workflow_id, recipient = _entry()
+        workflow_id, recipient = self._target_for(chat_id)
         if not workflow_id and not recipient:
             await msg.reply_text("No agents configured yet. Create one in the web UI.")
             return
         create_run(
             content=text, workflow_id=workflow_id, recipient=recipient,
             attachments=attachments, channel="telegram", chat_id=chat_id,
+            max_loops=self._chat_loops.get(chat_id, 3),
         )
+
+    # --- chat target + commands --------------------------------------------
+    def _target_for(self, chat_id: str):
+        """Per-chat selection if set, else the configured/default entry."""
+        sel = self._chat_target.get(chat_id)
+        if sel:
+            kind, _id = sel
+            return (_id, None) if kind == "wf" else (None, _id)
+        return _entry()
+
+    async def _cmd_help(self, update, context):
+        await update.effective_message.reply_text(
+            "Commands:\n"
+            "/workflows — list workflows you can use\n"
+            "/use <name|id> — pick a workflow (or an agent name) for this chat\n"
+            "/turns <n> — max feedback-loop turns (default 3)\n"
+            "/current — show this chat's selection\n\n"
+            "Then just send a message to run it."
+        )
+
+    async def _cmd_workflows(self, update, context):
+        with Session(engine) as s:
+            wfs = s.exec(select(Workflow)).all()
+        if not wfs:
+            await update.effective_message.reply_text("No workflows yet — build one in the web UI.")
+            return
+        lines = "\n".join(f"• {w.name}" for w in wfs)
+        await update.effective_message.reply_text(
+            f"Workflows:\n{lines}\n\nPick one with /use <name>."
+        )
+
+    async def _cmd_use(self, update, context):
+        chat_id = str(update.effective_chat.id)
+        query = " ".join(context.args).strip()
+        if not query:
+            await update.effective_message.reply_text("Usage: /use <workflow name or id>")
+            return
+        with Session(engine) as s:
+            wfs = s.exec(select(Workflow)).all()
+            agents = s.exec(select(Agent)).all()
+        q = query.lower()
+        wf = next((w for w in wfs if w.id == query or w.name.lower() == q), None) \
+            or next((w for w in wfs if q in w.name.lower()), None)
+        if wf:
+            self._chat_target[chat_id] = ("wf", wf.id)
+            await update.effective_message.reply_text(f"This chat now uses workflow: {wf.name}")
+            return
+        ag = next((a for a in agents if a.id == query or a.name.lower() == q), None) \
+            or next((a for a in agents if q in a.name.lower()), None)
+        if ag:
+            self._chat_target[chat_id] = ("agent", ag.id)
+            await update.effective_message.reply_text(f"This chat now talks to agent: {ag.name}")
+            return
+        await update.effective_message.reply_text(f"No workflow or agent matching '{query}'.")
+
+    async def _cmd_turns(self, update, context):
+        chat_id = str(update.effective_chat.id)
+        try:
+            n = int(context.args[0])
+            assert n >= 0
+        except Exception:
+            await update.effective_message.reply_text("Usage: /turns <non-negative integer>")
+            return
+        self._chat_loops[chat_id] = n
+        await update.effective_message.reply_text(f"Max loop turns for this chat: {n}")
+
+    async def _cmd_current(self, update, context):
+        chat_id = str(update.effective_chat.id)
+        wf_id, ag_id = self._target_for(chat_id)
+        with Session(engine) as s:
+            name = (s.get(Workflow, wf_id).name if wf_id else
+                    (s.get(Agent, ag_id).name if ag_id else "none"))
+        turns = self._chat_loops.get(chat_id, 3)
+        await update.effective_message.reply_text(f"Using: {name} · max loop turns: {turns}")
 
     # --- outbound -----------------------------------------------------------
     async def _deliver_loop(self):

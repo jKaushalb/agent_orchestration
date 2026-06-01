@@ -26,7 +26,7 @@ class StartRun(BaseModel):
     workflow_id: Optional[str] = None
     recipient: Optional[str] = None  # for a direct single-agent chat
     attachments: Optional[List[Dict[str, Any]]] = None
-    max_steps: int = 30
+    max_loops: int = 3  # max feedback-loop turns ("max turns in a loop")
 
 
 @router.post("/runs", status_code=201)
@@ -37,7 +37,7 @@ def start_run(payload: StartRun):
             workflow_id=payload.workflow_id,
             recipient=payload.recipient,
             attachments=payload.attachments,
-            max_steps=payload.max_steps,
+            max_loops=payload.max_loops,
         )
     except IngestError as e:
         raise HTTPException(400, str(e))
