@@ -16,6 +16,7 @@ export const api = {
   updateAgent: (id, a) => j("PUT", `/agents/${id}`, a),
   deleteAgent: (id) => j("DELETE", `/agents/${id}`),
   listTools: () => j("GET", "/tools"),
+  listModels: () => j("GET", "/models"),
   startRun: (payload) => j("POST", "/runs", payload),
   listWorkflows: () => j("GET", "/workflows").catch(() => []),
   getWorkflow: (id) => j("GET", `/workflows/${id}`),

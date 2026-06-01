@@ -55,8 +55,9 @@ body {
 .actions { display: flex; flex-direction: column; gap: 6px; }
 
 .form { display: flex; flex-direction: column; gap: 8px; }
-.form input, .form textarea { background: var(--panel-2); color: var(--text); border: 1px solid var(--line); border-radius: 8px; padding: 7px 9px; }
+.form input, .form textarea, .form select { background: var(--panel-2); color: var(--text); border: 1px solid var(--line); border-radius: 8px; padding: 7px 9px; }
 .form textarea { min-height: 60px; }
+.form .field { display: flex; flex-direction: column; gap: 4px; font-size: 11px; color: var(--muted); }
 .row { display: flex; gap: 8px; align-items: center; }
 .row label { display: flex; flex-direction: column; font-size: 11px; color: var(--muted); flex: 1; }
 .checks { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; background: var(--panel-2); border: 1px solid var(--line); border-radius: 8px; padding: 8px; }

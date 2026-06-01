@@ -15,6 +15,7 @@ const BLANK = {
 export default function AgentsPanel({ onChange }) {
   const [agents, setAgents] = useState([]);
   const [tools, setTools] = useState([]);
+  const [models, setModels] = useState([]);
   const [form, setForm] = useState(BLANK);
   const [editId, setEditId] = useState(null);
 
@@ -24,7 +25,12 @@ export default function AgentsPanel({ onChange }) {
   useEffect(() => {
     refresh();
     api.listTools().then(setTools).catch(() => {});
+    api.listModels().then(setModels).catch(() => {});
   }, []);
+
+  // "custom" when the current model isn't one of the presets
+  const isPreset = models.some((m) => m.id === form.model);
+  const modelSelectValue = isPreset ? form.model : "__custom__";
 
   function set(k, v) {
     setForm((f) => ({ ...f, [k]: v }));
@@ -81,7 +87,27 @@ export default function AgentsPanel({ onChange }) {
       <div className="form">
         <input placeholder="name" value={form.name} onChange={(e) => set("name", e.target.value)} />
         <input placeholder="role" value={form.role} onChange={(e) => set("role", e.target.value)} />
-        <input placeholder="model" value={form.model} onChange={(e) => set("model", e.target.value)} />
+        <label className="field">model
+          <select
+            value={modelSelectValue}
+            onChange={(e) => {
+              const v = e.target.value;
+              set("model", v === "__custom__" ? "" : v);
+            }}
+          >
+            {models.map((m) => (
+              <option key={m.id} value={m.id}>{m.label}</option>
+            ))}
+            <option value="__custom__">Custom…</option>
+          </select>
+        </label>
+        {!isPreset && (
+          <input
+            placeholder="custom litellm model id, e.g. gemini/gemini-2.5-flash"
+            value={form.model}
+            onChange={(e) => set("model", e.target.value)}
+          />
+        )}
         <textarea
           placeholder="system prompt"
           value={form.system_prompt}

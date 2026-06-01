@@ -130,7 +130,10 @@ REST + SSE only):
   in live with a colour-coded label. Backed by the persisted `messages` table,
   so history survives reloads.
 - **Right — agents:** create / edit / delete agents and all their config
-  (model, prompt, temperature, tools, channels).
+  (model, prompt, temperature, tools, channels). The model field is a dropdown
+  of presets (Gemini 2.5 Flash/Pro, Gemini 3.5 Flash, Claude Sonnet/Opus, GPT-4o)
+  with a **Custom…** option to type any litellm model id — litellm resolves the
+  provider from the name prefix.
 
 ```bash
 cd frontend
