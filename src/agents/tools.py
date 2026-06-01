@@ -94,7 +94,7 @@ TOOL_REGISTRY = {
         "type": "function",
         "function": {
             "name": "wikipedia_extract",
-            "descrition": "Extracts the wikipedia page summary for the given query ",
+            "description": "Extracts the wikipedia page summary for the given query ",
             "parameters": {
                 "type": "object",
                 "properties": {
