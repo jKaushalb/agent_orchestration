@@ -1,12 +1,34 @@
-**/.env
-*/**/*.ipynb
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
 venv/
-*/**/__pycache__
+.venv/
 
-*/**/*.md
-*/**/*.jpg
+# Secrets / env
+**/.env
+.env
 
-**/op
+# Jupyter scratch
+*.ipynb
 
-*/**/*.txt
-*/**/*.json
+# Pickled run outputs (prototype)
+*.pkl
+**/op/
+
+# Prototype outputs & inputs (article drafts, OCR run artifacts, input images)
+src/agents/AI_*.md
+src/agents/*.json
+src/agents/*.txt
+src/agents/*.jpg
+
+# Node / frontend build
+node_modules/
+frontend/dist/
+frontend/build/
+
+# Runtime artifacts (platform)
+*.db
+*.sqlite3
+agent_platform/backend/workspace/
+agent_platform/backend/data/

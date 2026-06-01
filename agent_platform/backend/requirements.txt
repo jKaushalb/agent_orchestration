@@ -1,0 +1,24 @@
+# Web framework
+fastapi
+uvicorn[standard]
+
+# Persistence
+sqlmodel
+
+# Agent runtime
+litellm
+python-dotenv
+pydantic
+
+# Tools
+tavily-python
+ddgs
+wikipedia-api
+requests
+beautifulsoup4
+
+# Scheduling (Chunk 7)
+apscheduler
+
+# Telegram channel (Chunk 5)
+python-telegram-bot
