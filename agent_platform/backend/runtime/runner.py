@@ -8,6 +8,7 @@ the final assistant text plus the call cost.
 It is provider-agnostic: litellm resolves credentials from the model-name
 prefix (e.g. ``gemini/...`` -> GEMINI_API_KEY).
 """
+import json
 import logging
 import time
 from dataclasses import dataclass
@@ -101,6 +102,7 @@ def run_agent(
 
     tool_defs = [TOOL_REGISTRY[t] for t in (config.tools or []) if t in TOOL_REGISTRY]
     total_cost = 0.0
+    last_written = None  # content of the most recent write_file (the real artifact)
 
     for _ in range(max_tool_iterations):
         kwargs: Dict[str, Any] = {
@@ -119,12 +121,24 @@ def run_agent(
 
         if not getattr(msg, "tool_calls", None):
             text = msg.content or ""
+            # If the model saved an artifact via write_file but only replied with
+            # a short confirmation ("saved as x.md"), surface the written content
+            # itself so it flows down the bus to the next agent / the user.
+            if last_written and len(text.strip()) < max(200, len(last_written) // 2):
+                text = last_written
             messages.append({"role": "assistant", "content": text})
             return RunResult(output=text, cost=total_cost, history=messages)
 
         # Record the assistant's tool-call turn, then execute each call.
         messages.append(msg.model_dump())
         for call in msg.tool_calls:
+            if call.function.name == "write_file":
+                try:
+                    data = json.loads(call.function.arguments or "{}").get("data")
+                    if data:
+                        last_written = data
+                except Exception:
+                    pass
             result = _execute_tool(call)
             messages.append(
                 {
