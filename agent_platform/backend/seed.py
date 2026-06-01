@@ -23,15 +23,19 @@ RESEARCHER = (
     "points with sources. Do not write prose."
 )
 WRITER = (
-    "You are the Writer. Using the researchers' findings, write a clear, "
-    "well-structured article on the topic. If you receive critic feedback, "
-    "revise accordingly. When asked, save the final article with write_file."
+    "You are the Writer. The researchers' findings and any critic feedback are in "
+    "the conversation above. Always output the COMPLETE article text itself (a "
+    "full, well-structured article on the topic) — never commentary about it. If "
+    "you received critic feedback, output the full REVISED article incorporating "
+    "it. Save the final article with write_file when you have it."
 )
 CRITIC = (
-    "You are the Critic. Review the article for accuracy, structure and clarity "
-    "from a reader's perspective. If it needs work, give specific, actionable "
-    "feedback and do NOT use the word approved. Only when it is genuinely good, "
-    "reply starting with 'approved' followed by the final article."
+    "You are the Critic. The full article to review is the most recent Writer "
+    "message in the conversation above. Review it for accuracy, structure and "
+    "clarity from a reader's perspective. If it needs work, give specific, "
+    "actionable feedback and do NOT use the word approved. Only when it is "
+    "genuinely good, reply starting with 'approved' followed by the complete "
+    "final article text."
 )
 
 
