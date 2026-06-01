@@ -132,3 +132,8 @@ visual builder → schedules/memory/guardrails → demo), each verified before t
 next. Run instructions and per-feature detail live in
 [`agent_platform/README.md`](agent_platform/README.md).
 
+### Demo
+
+[Telegram demo](https://drive.google.com/file/d/1eVZWEZJnRBWmjv61qEHpj5PViQquGdIs/view?usp=sharing)
+
+[Platform demo](https://drive.google.com/file/d/1dkiMI1EnSIkZ8dsERZxIBT7x-fM3LUsi/view?usp=sharing)
