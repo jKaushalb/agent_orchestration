@@ -18,6 +18,21 @@ function usd(n) {
   return `$${Number(n || 0).toFixed(4)}`;
 }
 
+// Stable ordering by server timestamp, so live and reloaded views always match.
+function byCreated(a, b) {
+  return new Date(a.created_at || 0) - new Date(b.created_at || 0);
+}
+
+// Insert/replace a message by id (dropping the optimistic "local" one) and keep
+// the list deduped + time-sorted. Idempotent, so a stream reconnect that
+// re-sends history can't create duplicates or reorder anything.
+function upsert(prev, m) {
+  const out = prev.filter((x) => x.id !== "local" && x.id !== m.id);
+  out.push(m);
+  out.sort(byCreated);
+  return out;
+}
+
 export default function ChatPanel({ version }) {
   const [agents, setAgents] = useState([]);
   const [workflows, setWorkflows] = useState([]);
@@ -65,7 +80,7 @@ export default function ChatPanel({ version }) {
     closeRef.current = streamRun(
       id,
       (m) => {
-        setMessages((prev) => [...prev.filter((x) => x.id !== "local" && x.id !== m.id), m]);
+        setMessages((prev) => upsert(prev, m));
         refreshCost(id); // update running total as each agent finishes
       },
       () => { setRunning(false); refreshRuns(); refreshCost(id); onDone && onDone(); }
@@ -79,7 +94,8 @@ export default function ChatPanel({ version }) {
     else payload.recipient = target.slice(6);
     if (image) payload.attachments = [{ type: "image", data: image }];
 
-    setMessages([{ id: "local", label: "you", sender: "user", content: text, status: "sent" }]);
+    setMessages([{ id: "local", label: "you", sender: "user", content: text,
+                   status: "sent", created_at: new Date().toISOString() }]);
     setText("");
     setImage(null);
     setRunning(true);
@@ -91,7 +107,8 @@ export default function ChatPanel({ version }) {
       refreshRuns();
       streamInto(run_id);
     } catch (e) {
-      setMessages((prev) => [...prev, { id: "err", label: "error", content: String(e) }]);
+      setMessages((prev) => [...prev, { id: "err", label: "error", content: String(e),
+                                        created_at: new Date().toISOString() }]);
       setRunning(false);
     }
   }
@@ -102,7 +119,7 @@ export default function ChatPanel({ version }) {
     if (!id) { setRunId(null); setMessages([]); setRunning(false); return; }
     setRunId(id);
     const [msgs, run] = await Promise.all([api.getMessages(id), api.getRun(id)]);
-    setMessages(msgs);
+    setMessages([...msgs].sort(byCreated));
     setCost(run.cost || 0);
     if (run.status === "running") {
       setRunning(true);
@@ -185,7 +202,11 @@ export default function ChatPanel({ version }) {
             <span className="chip" style={{ background: colorFor(m.label || "?") }}>
               {m.label}
             </span>
-            <div className="bubble">{m.content}</div>
+            <div className="bubble">
+              {m.content && m.content.trim()
+                ? m.content
+                : <span className="muted">(used a tool / no text)</span>}
+            </div>
           </div>
         ))}
         <div ref={bottomRef} />
